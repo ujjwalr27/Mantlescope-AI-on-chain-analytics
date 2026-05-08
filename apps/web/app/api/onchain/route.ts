@@ -4,7 +4,7 @@ import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
 import { getWalletActivity } from "@/lib/data/walletData";
 import { analyzeWallet } from "@/lib/ai/analyzer";
 import { BEHAVIOR_TAG_ID } from "@/lib/ai/schemas";
-import { keccak256, toUtf8Bytes } from "ethers";
+import { keccak256, toBytes } from "viem";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const activity = await getWalletActivity(address);
   const insight = await analyzeWallet(activity);
 
-  const summaryHash = keccak256(toUtf8Bytes(insight.summary)) as `0x${string}`;
+  const summaryHash = keccak256(toBytes(insight.summary));
   const riskScore = insight.riskScore;
   const behaviorTag = BEHAVIOR_TAG_ID[insight.behaviorTag];
 
