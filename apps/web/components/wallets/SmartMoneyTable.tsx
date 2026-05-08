@@ -9,7 +9,7 @@ export interface WalletRow {
   address: string;
   txCount: number;
   uniqueCounterparties: number;
-  behaviorHint: string;
+  behaviorHint: "bot" | "whale" | "trader" | "accumulator" | "unknown";
   riskScore?: number;
 }
 

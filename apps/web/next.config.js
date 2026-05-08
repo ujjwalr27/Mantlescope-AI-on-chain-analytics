@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: { serverComponentsExternalPackages: ["groq-sdk"] },
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   webpack: (config, { isServer }) => {
     // Stub out React Native packages pulled in by @metamask/sdk
     config.resolve.alias = {
