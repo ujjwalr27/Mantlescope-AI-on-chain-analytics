@@ -1,0 +1,43 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getOracleWalletClient, publicClient } from "@/lib/mantle/rpc";
+import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
+import { getWalletActivity } from "@/lib/data/walletData";
+import { analyzeWallet } from "@/lib/ai/analyzer";
+import { BEHAVIOR_TAG_ID } from "@/lib/ai/schemas";
+import { keccak256, toUtf8Bytes } from "ethers";
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const address = body.address as string;
+
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    return NextResponse.json({ error: "Valid address required" }, { status: 400 });
+  }
+
+  // Run AI analysis
+  const activity = await getWalletActivity(address);
+  const insight = await analyzeWallet(activity);
+
+  const summaryHash = keccak256(toUtf8Bytes(insight.summary)) as `0x${string}`;
+  const riskScore = insight.riskScore;
+  const behaviorTag = BEHAVIOR_TAG_ID[insight.behaviorTag];
+
+  // Write to contract via oracle wallet
+  const walletClient = getOracleWalletClient();
+
+  const hash = await walletClient.writeContract({
+    address: MANTLESCOPE_ADDRESS,
+    abi: MANTLESCOPE_ABI,
+    functionName: "writeWalletInsight",
+    args: [address as `0x${string}`, riskScore, behaviorTag, summaryHash, insight.summary],
+  });
+
+  await publicClient.waitForTransactionReceipt({ hash });
+
+  return NextResponse.json({
+    success: true,
+    txHash: hash,
+    insight,
+    explorerUrl: `https://sepolia.mantlescan.xyz/tx/${hash}`,
+  });
+}
