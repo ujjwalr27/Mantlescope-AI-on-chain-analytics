@@ -1,0 +1,16 @@
+{
+  "name": "mantlescope",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint && pnpm --filter contracts lint",
+    "test:contracts": "pnpm --filter contracts test",
+    "deploy:contracts": "pnpm --filter contracts deploy"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
