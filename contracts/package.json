@@ -7,6 +7,8 @@
     "test": "hardhat test",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network mantleSepolia",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network mantle",
+    "deploy:agent": "hardhat run scripts/deployAgent.ts --network mantleSepolia",
+    "mint:agent": "hardhat run scripts/mintAgent.ts --network mantleSepolia",
     "verify:testnet": "hardhat verify --network mantleSepolia"
   },
   "dependencies": {

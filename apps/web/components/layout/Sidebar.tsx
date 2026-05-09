@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Users, Layers, Search, MessageSquare } from "lucide-react";
+import { BarChart3, Users, Layers, Search, MessageSquare, Radio, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AgentBadge } from "@/components/AgentBadge";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
@@ -11,6 +12,8 @@ const NAV = [
   { href: "/protocols", label: "Protocols", icon: Layers },
   { href: "/profiler", label: "Profiler", icon: Search },
   { href: "/chat", label: "AI Chat", icon: MessageSquare },
+  { href: "/oracle", label: "Oracle Log", icon: Radio },
+  { href: "/about", label: "About", icon: Info },
 ];
 
 export function Sidebar() {
@@ -32,6 +35,11 @@ export function Sidebar() {
           {label}
         </Link>
       ))}
+
+      {/* ERC-8004 Agent badge at bottom of sidebar */}
+      <div className="mt-auto mx-2 px-1 pb-1">
+        <AgentBadge />
+      </div>
     </aside>
   );
 }

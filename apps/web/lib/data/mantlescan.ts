@@ -99,6 +99,97 @@ export interface WalletActivity {
   recentTokenTxs: TokenTx[];
 }
 
+/**
+ * Discover top active wallets on Mantle by scanning recent blocks.
+ * Queries the last N transactions across 4 major tokens in parallel
+ * (USDC, USDT, WETH, WMNT) and merges frequency maps so whales active
+ * in any token are included — not just USDC holders.
+ */
+export async function getTopActiveWallets(limit = 20): Promise<string[]> {
+  // Key tokens on Mantle Mainnet (L2 addresses)
+  const TOKENS = [
+    { address: "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9", symbol: "USDC" },
+    { address: "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE", symbol: "USDT" },
+    { address: "0xdEAddEaDdeadDEadDEADDEaddEADDEadDEADDEad", symbol: "WETH" },
+    { address: "0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8", symbol: "WMNT" },
+  ];
+
+  // Addresses to always ignore (zero address, token contracts themselves, bridge)
+  const IGNORED = new Set(
+    [
+      "0x0000000000000000000000000000000000000000",
+      "0x4200000000000000000000000000000000000010", // L2 Bridge
+      ...TOKENS.map((t) => t.address.toLowerCase()),
+    ].map((a) => a.toLowerCase())
+  );
+
+  try {
+    // Resolve latest block once
+    const blockRes = await fetchEtherscan<string>({
+      module: "proxy",
+      action: "eth_blockNumber",
+    });
+    const latestBlock = parseInt(blockRes, 16);
+    const fromBlock = latestBlock - 5000; // ~7 days at ~6 s/block
+
+    // Fetch recent transfers for all 4 tokens in parallel
+    const results = await Promise.allSettled(
+      TOKENS.map(async (token) => {
+        const url = new URL(BASE);
+        url.searchParams.set("chainid", CHAIN_ID);
+        url.searchParams.set("apikey", API_KEY);
+        url.searchParams.set("module", "account");
+        url.searchParams.set("action", "tokentx");
+        url.searchParams.set("contractaddress", token.address);
+        url.searchParams.set("startblock", String(fromBlock));
+        url.searchParams.set("endblock", String(latestBlock));
+        url.searchParams.set("page", "1");
+        url.searchParams.set("offset", "200");
+        url.searchParams.set("sort", "desc");
+
+        const res = await fetch(url.toString(), { next: { revalidate: 0 } });
+        const json = await res.json();
+        return Array.isArray(json.result)
+          ? (json.result as Array<{ from: string; to: string }>)
+          : [];
+      })
+    );
+
+    // Merge frequency maps across all tokens
+    const freq = new Map<string, number>();
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue;
+      for (const tx of result.value) {
+        const from = tx.from.toLowerCase();
+        const to = tx.to.toLowerCase();
+        if (!IGNORED.has(from) && !from.startsWith("0x000000")) {
+          freq.set(from, (freq.get(from) ?? 0) + 1);
+        }
+        if (!IGNORED.has(to) && !to.startsWith("0x000000")) {
+          freq.set(to, (freq.get(to) ?? 0) + 1);
+        }
+      }
+    }
+
+    if (freq.size === 0) throw new Error("No addresses found");
+
+    // Sort by frequency, return top addresses
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([addr]) => addr);
+  } catch {
+    // Fallback to known active Mantle addresses
+    return [
+      "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
+      "0x4200000000000000000000000000000000000006",
+      "0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8",
+      "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE",
+      "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9",
+    ];
+  }
+}
+
 export async function getWalletActivity(address: string): Promise<WalletActivity> {
   const [txs, tokenTxs] = await Promise.all([
     getTransactions(address, 1, 100),

@@ -19,6 +19,7 @@ import {
 import type { WalletActivity } from "@/lib/data/walletData";
 import type { ProtocolTvl } from "@/lib/data/defillama";
 import { ZodSchema } from "zod";
+import { pushOracleEvent } from "@/lib/oracle-log";
 
 async function callGroqJson<T>(prompt: string, schema: ZodSchema<T>, retries = 1): Promise<T> {
   const client = getGroqClient();
@@ -53,7 +54,19 @@ export async function analyzeWallet(activity: WalletActivity): Promise<WalletIns
     protocols: activity.protocols,
     recentTokenSymbols: tokenSymbols,
   });
-  return callGroqJson(prompt, WalletInsightSchema);
+  const result = await callGroqJson(prompt, WalletInsightSchema);
+
+  // Fire-and-forget oracle log entry
+  void pushOracleEvent({
+    type: "ai_analysis",
+    address: activity.address,
+    riskScore: result.riskScore,
+    behaviorTag: result.behaviorTag,
+    summary: result.summary.slice(0, 120),
+    model: ANALYSIS_MODEL,
+  });
+
+  return result;
 }
 
 export async function analyzeProtocols(protocols: ProtocolTvl[]): Promise<ProtocolHealthResult> {
@@ -73,7 +86,16 @@ export async function detectAnomalies(
 ): Promise<AnomalyResult> {
   if (wallets.length === 0) return { anomalies: [] };
   const prompt = anomalyDetectionPrompt(wallets);
-  return callGroqJson(prompt, AnomalySchema);
+  const result = await callGroqJson(prompt, AnomalySchema);
+
+  void pushOracleEvent({
+    type: "anomaly_scan",
+    summary: `Scanned ${wallets.length} wallets — ${result.anomalies.length} anomalies found`,
+    anomalyCount: result.anomalies.length,
+    model: ANALYSIS_MODEL,
+  });
+
+  return result;
 }
 
 export async function predictTrend(

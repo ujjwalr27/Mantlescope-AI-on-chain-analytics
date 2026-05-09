@@ -91,6 +91,33 @@ export const LENDLE_POOL_ADDRESS = "0xCFa5aE7c2CE8Fadc6426C1ff872cA45378Fb7cF" a
 // Aurelius LendingPool on Mantle Mainnet
 export const AURELIUS_POOL_ADDRESS = "0x7c9C6F5BEd9Cfe5B9070671a0c476Da7Cd3b4e6" as `0x${string}`;
 
+// MantleScopeAgent (ERC-8004 Agent Identity NFT)
+export const AGENT_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_AGENT_CONTRACT ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
+
+export const AGENT_ABI = [
+  {
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    name: "getAgentMetadata",
+    outputs: [
+      { name: "name",         type: "string"  },
+      { name: "capabilities", type: "string"  },
+      { name: "aiModel",      type: "string"  },
+      { name: "achievements", type: "uint256" },
+      { name: "mintedAt",     type: "uint64"  },
+      { name: "active",       type: "bool"    },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalAgents",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
 // Key reserve assets on Mantle Mainnet
 export const RESERVE_ASSETS: Record<string, `0x${string}`> = {
   USDT: "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE",

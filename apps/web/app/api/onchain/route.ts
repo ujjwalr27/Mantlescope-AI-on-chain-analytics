@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOracleWalletClient, publicClient } from "@/lib/mantle/rpc";
-import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
+import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI, AGENT_CONTRACT_ADDRESS, AGENT_ABI } from "@/lib/mantle/contracts";
 import { getWalletActivity } from "@/lib/data/walletData";
 import { analyzeWallet } from "@/lib/ai/analyzer";
 import { BEHAVIOR_TAG_ID } from "@/lib/ai/schemas";
 import { keccak256, toBytes } from "viem";
+import { pushOracleEvent } from "@/lib/oracle-log";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -33,6 +34,26 @@ export async function POST(req: NextRequest) {
   });
 
   await publicClient.waitForTransactionReceipt({ hash });
+
+  // Increment ERC-8004 agent achievement counter (fire-and-forget — non-blocking)
+  if (AGENT_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000") {
+    void walletClient.writeContract({
+      address: AGENT_CONTRACT_ADDRESS,
+      abi: AGENT_ABI,
+      functionName: "incrementAchievement",
+      args: [0n], // token #0 = MantleScope AI Oracle
+    }).catch(() => {/* non-fatal */});
+  }
+
+  // Log the on-chain write to the oracle activity stream
+  void pushOracleEvent({
+    type: "onchain_write",
+    address,
+    riskScore: insight.riskScore,
+    behaviorTag: insight.behaviorTag,
+    summary: `Insight written on-chain — risk ${insight.riskScore}, tag: ${insight.behaviorTag}`,
+    txHash: hash,
+  });
 
   return NextResponse.json({
     success: true,

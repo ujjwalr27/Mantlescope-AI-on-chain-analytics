@@ -1,8 +1,11 @@
 import { Suspense } from "react";
-import { BarChart3, Wallet, Activity, AlertTriangle } from "lucide-react";
+import { BarChart3, Wallet, Activity } from "lucide-react";
+import { MetricCardSkeleton, ChartSkeleton } from "@/components/ui/skeleton";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { TVLChart } from "@/components/dashboard/TVLChart";
 import { VolumeChart } from "@/components/dashboard/VolumeChart";
+import { AnomalyCard } from "@/components/dashboard/AnomalyCard";
+import { BridgeInflowCard } from "@/components/dashboard/BridgeInflowCard";
 import { SmartMoneyTable, type WalletRow } from "@/components/wallets/SmartMoneyTable";
 import { formatUSD } from "@/lib/utils";
 import { getMantleChainTvl, type TvlPoint } from "@/lib/data/defillama";
@@ -22,11 +25,9 @@ async function fetchDexData(): Promise<DexData> {
       }),
     ]);
     const agniVol = agniRes.status === "fulfilled" && agniRes.value.ok
-      ? ((await agniRes.value.json()) as { total24h?: number }).total24h ?? 0
-      : 0;
+      ? ((await agniRes.value.json()) as { total24h?: number }).total24h ?? 0 : 0;
     const moeVol = moeRes.status === "fulfilled" && moeRes.value.ok
-      ? ((await moeRes.value.json()) as { total24h?: number }).total24h ?? 0
-      : 0;
+      ? ((await moeRes.value.json()) as { total24h?: number }).total24h ?? 0 : 0;
     return { totalDexVolume24h: agniVol + moeVol };
   } catch {
     return { totalDexVolume24h: 0 };
@@ -34,18 +35,9 @@ async function fetchDexData(): Promise<DexData> {
 }
 
 async function fetchTopWallets(): Promise<WalletRow[]> {
-  // Imported lazily to avoid pulling node-only deps into client bundle
-  const { getTransactions } = await import("@/lib/data/mantlescan");
-  const SEED_WALLETS = [
-    "0x9b93b2F519ecF41cb7CDCAEBd32B1B9861A91462",
-    "0x2F8A25ac62179B31D62D7F80884AE57464699059",
-    "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
-    "0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8",
-    "0x4200000000000000000000000000000000000006",
-    "0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8",
-    "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9",
-    "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE",
-  ];
+  const { getTopActiveWallets, getTransactions, getTokenTransfers } = await import("@/lib/data/mantlescan");
+  const { computeMantleScore } = await import("@/lib/scoring");
+
   function classify(txCount: number, counterparties: number): WalletRow["behaviorHint"] {
     if (counterparties > 50) return "bot";
     if (txCount > 200) return "whale";
@@ -53,19 +45,36 @@ async function fetchTopWallets(): Promise<WalletRow[]> {
     if (txCount > 5) return "accumulator";
     return "unknown";
   }
+
+  const addresses = await getTopActiveWallets(10);
   const rows = await Promise.all(
-    SEED_WALLETS.map(async (address) => {
-      const txs = await getTransactions(address, 1, 100);
-      const counterparties = new Set(txs.map((t) => t.from === address.toLowerCase() ? t.to : t.from)).size;
+    addresses.map(async (address) => {
+      const [txs, tokenTxs] = await Promise.all([
+        getTransactions(address, 1, 100),
+        getTokenTransfers(address, 1, 100),
+      ]);
+      const counterparties = new Set(
+        txs.map((t) => (t.from.toLowerCase() === address.toLowerCase() ? t.to : t.from))
+      ).size;
+      const uniqueTokenCount = new Set(tokenTxs.map((t) => t.contractAddress.toLowerCase())).size;
+      const behaviorHint = classify(txs.length, counterparties);
+      const mantleScore = computeMantleScore({
+        txCount: txs.length,
+        uniqueCounterparties: counterparties,
+        behaviorHint,
+        uniqueTokenCount,
+      });
       return {
         address,
         txCount: txs.length,
         uniqueCounterparties: counterparties,
-        behaviorHint: classify(txs.length, counterparties),
+        behaviorHint,
+        mantleScore,
+        uniqueTokenCount,
       } satisfies WalletRow;
     })
   );
-  rows.sort((a, b) => b.txCount - a.txCount);
+  rows.sort((a, b) => b.mantleScore - a.mantleScore);
   return rows;
 }
 
@@ -91,7 +100,8 @@ async function DashboardContent() {
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <MetricCard
           title="Total TVL"
           value={formatUSD(currentTvl)}
@@ -99,18 +109,36 @@ async function DashboardContent() {
           icon={BarChart3}
           trend={tvlChange > 0 ? "up" : tvlChange < 0 ? "down" : "flat"}
         />
-        <MetricCard title="24h DEX Volume" value={formatUSD(dex.totalDexVolume24h)} icon={Activity} />
-        <MetricCard title="Tracked Wallets" value={String(wallets.length)} sub="Active last 7d" icon={Wallet} />
-        <MetricCard title="Anomalies" value="—" sub="Run anomaly scan" icon={AlertTriangle} />
+        <MetricCard
+          title="24h DEX Volume"
+          value={formatUSD(dex.totalDexVolume24h)}
+          icon={Activity}
+        />
+        <MetricCard
+          title="Tracked Wallets"
+          value={String(wallets.length)}
+          sub="Discovered from chain"
+          icon={Wallet}
+        />
       </div>
 
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <TVLChart data={tvlHistory} />
         <VolumeChart data={volBars} />
       </div>
 
+      {/* Bridge Inflow + Anomaly Cards (client-side, parallel) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <BridgeInflowCard />
+        <AnomalyCard />
+      </div>
+
+      {/* Top Wallets */}
       <div>
-        <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Top Wallets</h2>
+        <h2 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">
+          Top Wallets — Discovered from Chain Activity
+        </h2>
         <SmartMoneyTable wallets={wallets} limit={10} />
       </div>
     </>
@@ -121,7 +149,21 @@ export default function DashboardPage() {
   return (
     <div>
       <h1 className="text-xl font-semibold mb-6">Overview</h1>
-      <Suspense fallback={<div className="text-muted-foreground text-sm">Loading dashboard...</div>}>
+      <Suspense
+        fallback={
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ChartSkeleton />
+              <ChartSkeleton />
+            </div>
+          </div>
+        }
+      >
         <DashboardContent />
       </Suspense>
     </div>
