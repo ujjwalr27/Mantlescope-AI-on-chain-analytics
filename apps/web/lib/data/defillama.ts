@@ -67,3 +67,27 @@ export async function getAllProtocolTvls(): Promise<ProtocolTvl[]> {
     .filter((r): r is PromiseFulfilledResult<ProtocolTvl> => r.status === "fulfilled")
     .map((r) => r.value);
 }
+
+export interface DexVolumePoint {
+  date: number;       // unix timestamp (seconds)
+  totalVolume: number; // USD
+}
+
+/**
+ * Fetch the last 7 days of total Mantle DEX volume from DefiLlama.
+ * Returns daily volume bars — REAL data, not random.
+ */
+export async function getMantleDexVolume7d(): Promise<DexVolumePoint[]> {
+  try {
+    const res = await fetch(
+      `${BASE}/overview/dexs/Mantle?excludeTotalDataChartBreakdown=true`,
+      { next: { revalidate: 300 } }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const chart: Array<[number, number]> = data.totalDataChart ?? [];
+    return chart.slice(-7).map(([date, totalVolume]) => ({ date, totalVolume }));
+  } catch {
+    return [];
+  }
+}

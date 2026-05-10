@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       const [history, protocols] = await Promise.all([getMantleChainTvl().catch(() => []), getAllProtocolTvls().catch(() => [])]);
       return { currentTvl: history.at(-1)?.tvl ?? 0, protocols };
     }),
-    cacheGet<Array<{ address: string; txCount: number; uniqueCounterparties: number; behaviorHint: string }>>("mantle:wallets:top50").then(async (cached) => {
+    cacheGet<Array<{ address: string; txCount: number; uniqueCounterparties: number; behaviorHint: string; mantleScore?: number }>>("mantle:wallets:top50:v2").then(async (cached) => {
       if (cached) return cached;
       const res = await fetch(`${process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : "http://localhost:3000"}/api/data/wallets`).catch(() => null);
       return res?.ok ? res.json() : [];
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
   const snap = tvlSnapshot as { currentTvl: number; protocols?: Array<{ name: string; tvl: number; change7d: number | null }> } | null;
   const protocols = snap?.protocols ?? [];
-  const topWalletRows = (walletRows as Array<{ address: string; txCount: number; behaviorHint: string }> | null) ?? [];
+  const topWalletRows = (walletRows as Array<{ address: string; txCount: number; behaviorHint: string; mantleScore?: number }> | null) ?? [];
 
   const protocolLines = protocols
     .sort((a, b) => b.tvl - a.tvl)
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
   const walletLines = topWalletRows
     .slice(0, 5)
-    .map((w) => `${w.address} — ${w.txCount} txs, tag: ${w.behaviorHint}`)
+    .map((w) => `${w.address} — ${w.txCount} txs, ${w.behaviorHint}${w.mantleScore !== undefined ? `, MantleScope Score: ${w.mantleScore}/100` : ""}`)
     .join("; ");
 
   const systemPrompt = `You are MantleScope AI, an on-chain analytics expert for the Mantle Network (EVM L2).

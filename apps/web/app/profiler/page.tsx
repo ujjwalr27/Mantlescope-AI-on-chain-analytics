@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useReadContract } from "wagmi";
-import { Search, Shield, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { parseEther } from "viem";
+import { Search, Shield, ChevronRight, ExternalLink, Loader2, Zap } from "lucide-react";
 import { WalletBadge } from "@/components/wallets/WalletBadge";
-import { formatAddress, formatUSD } from "@/lib/utils";
+import { formatAddress } from "@/lib/utils";
 import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
 
 const BEHAVIOR_TAGS = ["unknown", "accumulator", "trader", "bot", "whale"];
@@ -31,6 +32,9 @@ export default function ProfilerPage() {
   const [loading, setLoading] = useState(false);
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState("");
+  const [autoWriting, setAutoWriting] = useState(false);
+
+  const { isConnected } = useAccount();
 
   const { data: storedInsight, refetch: refetchOnchain } = useReadContract({
     address: MANTLESCOPE_ADDRESS,
@@ -39,6 +43,12 @@ export default function ProfilerPage() {
     args: address ? [address as `0x${string}`] : undefined,
     query: { enabled: !!address },
   });
+
+  // User-callable on-chain trigger — pays gas in MNT
+  const { writeContract: triggerOnChain, data: triggerHash, isPending: triggerPending } =
+    useWriteContract();
+  const { isLoading: triggerConfirming, isSuccess: triggerConfirmed } =
+    useWaitForTransactionReceipt({ hash: triggerHash });
 
   const handleAnalyze = useCallback(async () => {
     const addr = input.trim();
@@ -63,13 +73,13 @@ export default function ProfilerPage() {
     }
   }, [input]);
 
-  const handleWriteToChain = useCallback(async () => {
+  const handleWriteToChain = useCallback(async (triggerTxHash?: string) => {
     setWriting(true);
     try {
       const res = await fetch("/api/onchain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ address, triggerTxHash }),
       });
       if (!res.ok) throw new Error("On-chain write failed");
       const data = await res.json();
@@ -81,6 +91,27 @@ export default function ProfilerPage() {
       setWriting(false);
     }
   }, [address, refetchOnchain]);
+
+  // User-callable on-chain trigger
+  const handleTriggerOnChain = useCallback(() => {
+    if (!address) return;
+    setError("");
+    triggerOnChain({
+      address: MANTLESCOPE_ADDRESS,
+      abi: MANTLESCOPE_ABI,
+      functionName: "triggerAnalysis",
+      args: [address as `0x${string}`],
+      value: parseEther("0.001"), // small fee in MNT
+    });
+  }, [address, triggerOnChain]);
+
+  // After user's on-chain trigger confirms, auto-call backend to fulfill it
+  useEffect(() => {
+    if (triggerConfirmed && triggerHash && address && !onchain && !autoWriting) {
+      setAutoWriting(true);
+      handleWriteToChain(triggerHash).finally(() => setAutoWriting(false));
+    }
+  }, [triggerConfirmed, triggerHash, address, onchain, autoWriting, handleWriteToChain]);
 
   const riskColor =
     insight?.riskScore !== undefined
@@ -143,19 +174,55 @@ export default function ProfilerPage() {
               <p className="mt-2 leading-relaxed">{insight.reasoning}</p>
             </details>
 
-            <button
-              onClick={handleWriteToChain}
-              disabled={writing || !!onchain}
-              className="mt-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/30 text-primary rounded-lg text-sm font-medium hover:bg-primary/20 disabled:opacity-50 transition-colors"
-            >
-              {writing ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Writing to Mantle...</>
-              ) : onchain ? (
-                <><Shield className="w-4 h-4" /> Written on-chain</>
-              ) : (
-                <><Shield className="w-4 h-4" /> Write Insight to Chain</>
-              )}
-            </button>
+            {/* Two on-chain actions side by side */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-auto">
+              {/* User-callable on-chain trigger (pays gas in MNT) */}
+              <button
+                onClick={handleTriggerOnChain}
+                disabled={!isConnected || triggerPending || triggerConfirming || triggerConfirmed}
+                title={!isConnected ? "Connect wallet first" : "Trigger AI analysis on-chain (pay 0.001 MNT)"}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-mantle/10 border border-mantle/40 text-mantle rounded-lg text-sm font-medium hover:bg-mantle/20 disabled:opacity-50 transition-colors"
+              >
+                {triggerPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Confirm in wallet…</>
+                ) : triggerConfirming ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Mining…</>
+                ) : triggerConfirmed ? (
+                  <><Zap className="w-4 h-4" /> Triggered on-chain ✓</>
+                ) : (
+                  <><Zap className="w-4 h-4" /> Trigger On-Chain (0.001 MNT)</>
+                )}
+              </button>
+
+              {/* Direct oracle write (free for the user) */}
+              <button
+                onClick={handleWriteToChain}
+                disabled={writing || !!onchain || autoWriting}
+                title="Have the oracle write the result on-chain (free)"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/30 text-primary rounded-lg text-sm font-medium hover:bg-primary/20 disabled:opacity-50 transition-colors"
+              >
+                {writing || autoWriting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Writing…</>
+                ) : onchain ? (
+                  <><Shield className="w-4 h-4" /> Written ✓</>
+                ) : (
+                  <><Shield className="w-4 h-4" /> Write Insight (Oracle)</>
+                )}
+              </button>
+            </div>
+
+            {/* Trigger tx link */}
+            {triggerHash && (
+              <a
+                href={`https://sepolia.mantlescan.xyz/tx/${triggerHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-mantle hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View trigger tx on Mantlescan
+              </a>
+            )}
 
             {onchain && (
               <a
@@ -165,7 +232,7 @@ export default function ProfilerPage() {
                 className="flex items-center gap-1.5 text-xs text-primary hover:underline"
               >
                 <ExternalLink className="w-3 h-3" />
-                View tx on Mantlescan
+                View oracle write on Mantlescan
               </a>
             )}
           </div>
@@ -176,6 +243,14 @@ export default function ProfilerPage() {
               <div className="text-sm font-medium flex items-center gap-2">
                 <Shield className="w-4 h-4 text-primary" />
                 On-chain Record
+                <a
+                  href={`https://sepolia.mantlescan.xyz/address/${MANTLESCOPE_ADDRESS}#readContract`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                >
+                  Verified contract <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -193,6 +268,9 @@ export default function ProfilerPage() {
                   </div>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground border-t border-border pt-2">
+                Any Mantle contract can read this insight via <code className="font-mono bg-secondary px-1 rounded">getWalletInsight(address)</code> — trustless AI risk scores without each protocol running its own inference.
+              </p>
             </div>
           )}
         </div>

@@ -10,9 +10,20 @@ import { pushOracleEvent } from "@/lib/oracle-log";
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const address = body.address as string;
+  const triggerTxHash = body.triggerTxHash as string | undefined;
 
   if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
     return NextResponse.json({ error: "Valid address required" }, { status: 400 });
+  }
+
+  // If this came from a user-paid on-chain trigger, log the request first
+  if (triggerTxHash) {
+    void pushOracleEvent({
+      type: "analysis_request",
+      address,
+      summary: `User-triggered on-chain analysis request`,
+      txHash: triggerTxHash,
+    });
   }
 
   // Run AI analysis

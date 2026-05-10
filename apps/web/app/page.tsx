@@ -8,7 +8,7 @@ import { AnomalyCard } from "@/components/dashboard/AnomalyCard";
 import { BridgeInflowCard } from "@/components/dashboard/BridgeInflowCard";
 import { SmartMoneyTable, type WalletRow } from "@/components/wallets/SmartMoneyTable";
 import { formatUSD } from "@/lib/utils";
-import { getMantleChainTvl, type TvlPoint } from "@/lib/data/defillama";
+import { getMantleChainTvl, getMantleDexVolume7d, type TvlPoint } from "@/lib/data/defillama";
 
 interface DexData {
   totalDexVolume24h: number;
@@ -79,24 +79,32 @@ async function fetchTopWallets(): Promise<WalletRow[]> {
 }
 
 async function DashboardContent() {
-  const [tvlRes, walletsRes, dexRes] = await Promise.allSettled([
+  const [tvlRes, walletsRes, dexRes, volSeriesRes] = await Promise.allSettled([
     getMantleChainTvl(),
     fetchTopWallets(),
     fetchDexData(),
+    getMantleDexVolume7d(),
   ]);
 
   const tvlHistory: TvlPoint[] = tvlRes.status === "fulfilled" ? tvlRes.value : [];
   const wallets: WalletRow[] = walletsRes.status === "fulfilled" ? walletsRes.value : [];
   const dex: DexData = dexRes.status === "fulfilled" ? dexRes.value : { totalDexVolume24h: 0 };
+  const volSeries = volSeriesRes.status === "fulfilled" ? volSeriesRes.value : [];
 
   const currentTvl = tvlHistory.at(-1)?.tvl ?? 0;
   const tvl7dAgo = tvlHistory.at(-8)?.tvl ?? currentTvl;
   const tvlChange = tvl7dAgo ? ((currentTvl - tvl7dAgo) / tvl7dAgo) * 100 : 0;
 
-  const volBars = Array.from({ length: 7 }, (_, i) => ({
-    date: new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString("en-US", { weekday: "short" }),
-    volumeM: parseFloat((dex.totalDexVolume24h / 1e6 * (0.7 + Math.random() * 0.6)).toFixed(2)),
-  }));
+  // Real 7-day DEX volume from DefiLlama (falls back to flat distribution if API fails)
+  const volBars = volSeries.length > 0
+    ? volSeries.map((p) => ({
+        date: new Date(p.date * 1000).toLocaleDateString("en-US", { weekday: "short" }),
+        volumeM: parseFloat((p.totalVolume / 1e6).toFixed(2)),
+      }))
+    : Array.from({ length: 7 }, (_, i) => ({
+        date: new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString("en-US", { weekday: "short" }),
+        volumeM: parseFloat((dex.totalDexVolume24h / 1e6).toFixed(2)),
+      }));
 
   return (
     <>
