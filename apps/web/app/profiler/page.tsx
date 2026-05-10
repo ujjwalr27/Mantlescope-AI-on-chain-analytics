@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useSwitchChain } from "wagmi";
 import { parseEther } from "viem";
-import { Search, Shield, ChevronRight, ExternalLink, Loader2, Zap } from "lucide-react";
+import { Search, Shield, ChevronRight, ExternalLink, Loader2, Zap, AlertTriangle } from "lucide-react";
 import { WalletBadge } from "@/components/wallets/WalletBadge";
 import { formatAddress } from "@/lib/utils";
 import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
 
 const BEHAVIOR_TAGS = ["unknown", "accumulator", "trader", "bot", "whale"];
+const EXPECTED_CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID ?? "5003"); // Mantle Sepolia
 
 interface InsightResult {
   riskScore: number;
@@ -35,6 +36,9 @@ export default function ProfilerPage() {
   const [autoWriting, setAutoWriting] = useState(false);
 
   const { isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChain, isPending: switching } = useSwitchChain();
+  const isWrongChain = isConnected && chainId !== EXPECTED_CHAIN_ID;
 
   const { data: storedInsight, refetch: refetchOnchain } = useReadContract({
     address: MANTLESCOPE_ADDRESS,
@@ -45,7 +49,7 @@ export default function ProfilerPage() {
   });
 
   // User-callable on-chain trigger — pays gas in MNT
-  const { writeContract: triggerOnChain, data: triggerHash, isPending: triggerPending } =
+  const { writeContract: triggerOnChain, data: triggerHash, isPending: triggerPending, reset: resetTrigger } =
     useWriteContract();
   const { isLoading: triggerConfirming, isSuccess: triggerConfirmed } =
     useWaitForTransactionReceipt({ hash: triggerHash });
@@ -60,6 +64,7 @@ export default function ProfilerPage() {
     setLoading(true);
     setInsight(null);
     setOnchain(null);
+    resetTrigger(); // clear any prior on-chain trigger state from a previous analysis
     try {
       const res = await fetch(`/api/insights?address=${addr}`);
       if (!res.ok) throw new Error("Analysis failed");
@@ -71,7 +76,7 @@ export default function ProfilerPage() {
     } finally {
       setLoading(false);
     }
-  }, [input]);
+  }, [input, resetTrigger]);
 
   const handleWriteToChain = useCallback(async (triggerTxHash?: string) => {
     setWriting(true);
@@ -146,6 +151,23 @@ export default function ProfilerPage() {
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
+      {/* Wrong-chain banner */}
+      {isWrongChain && insight && (
+        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3 flex items-center gap-3">
+          <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
+          <span className="text-xs text-yellow-200 flex-1">
+            Your wallet is connected to chain {chainId}, but the contract lives on Mantle Sepolia (chain {EXPECTED_CHAIN_ID}).
+          </span>
+          <button
+            onClick={() => switchChain({ chainId: EXPECTED_CHAIN_ID })}
+            disabled={switching}
+            className="text-xs px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-200 rounded-md font-medium disabled:opacity-50"
+          >
+            {switching ? "Switching…" : "Switch to Mantle Sepolia"}
+          </button>
+        </div>
+      )}
+
       {insight && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* AI Result */}
@@ -179,8 +201,12 @@ export default function ProfilerPage() {
               {/* User-callable on-chain trigger (pays gas in MNT) */}
               <button
                 onClick={handleTriggerOnChain}
-                disabled={!isConnected || triggerPending || triggerConfirming || triggerConfirmed}
-                title={!isConnected ? "Connect wallet first" : "Trigger AI analysis on-chain (pay 0.001 MNT)"}
+                disabled={!isConnected || isWrongChain || triggerPending || triggerConfirming || triggerConfirmed}
+                title={
+                  !isConnected ? "Connect wallet first" :
+                  isWrongChain ? "Switch to Mantle Sepolia first" :
+                  "Trigger AI analysis on-chain (pay 0.001 MNT)"
+                }
                 className="flex items-center justify-center gap-2 px-4 py-2.5 bg-mantle/10 border border-mantle/40 text-mantle rounded-lg text-sm font-medium hover:bg-mantle/20 disabled:opacity-50 transition-colors"
               >
                 {triggerPending ? (
@@ -196,7 +222,7 @@ export default function ProfilerPage() {
 
               {/* Direct oracle write (free for the user) */}
               <button
-                onClick={handleWriteToChain}
+                onClick={() => handleWriteToChain()}
                 disabled={writing || !!onchain || autoWriting}
                 title="Have the oracle write the result on-chain (free)"
                 className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/10 border border-primary/30 text-primary rounded-lg text-sm font-medium hover:bg-primary/20 disabled:opacity-50 transition-colors"

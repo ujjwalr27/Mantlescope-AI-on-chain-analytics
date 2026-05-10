@@ -95,16 +95,12 @@ async function DashboardContent() {
   const tvl7dAgo = tvlHistory.at(-8)?.tvl ?? currentTvl;
   const tvlChange = tvl7dAgo ? ((currentTvl - tvl7dAgo) / tvl7dAgo) * 100 : 0;
 
-  // Real 7-day DEX volume from DefiLlama (falls back to flat distribution if API fails)
-  const volBars = volSeries.length > 0
-    ? volSeries.map((p) => ({
-        date: new Date(p.date * 1000).toLocaleDateString("en-US", { weekday: "short" }),
-        volumeM: parseFloat((p.totalVolume / 1e6).toFixed(2)),
-      }))
-    : Array.from({ length: 7 }, (_, i) => ({
-        date: new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString("en-US", { weekday: "short" }),
-        volumeM: parseFloat((dex.totalDexVolume24h / 1e6).toFixed(2)),
-      }));
+  // Real 7-day DEX volume from DefiLlama. If the API fails, the chart shows
+  // an honest "data unavailable" state — never fake or flat-distributed bars.
+  const volBars = volSeries.map((p) => ({
+    date: new Date(p.date * 1000).toLocaleDateString("en-US", { weekday: "short" }),
+    volumeM: parseFloat((p.totalVolume / 1e6).toFixed(2)),
+  }));
 
   return (
     <>

@@ -2,21 +2,12 @@ import { NextResponse } from "next/server";
 import { cacheGet, cacheSet } from "@/lib/cache/redis";
 import { detectAnomalies } from "@/lib/ai/analyzer";
 import { getTopActiveWallets, getTransactions, getTokenTransfers } from "@/lib/data/mantlescan";
+import { getTokenPrices, priceOf } from "@/lib/data/prices";
 
 const ANOMALY_KEY = "mantle:anomalies:latest";
 const LASTRUN_KEY = "mantle:anomalies:lastrun";
 const WALLETS_CACHE_KEY = "mantle:wallets:top50:v2";
 const SCAN_INTERVAL_MS = 15 * 60 * 1000; // 15 min
-
-// Approximate USD prices for known Mantle tokens (used for volumeUSD estimate)
-const TOKEN_PRICES: Record<string, number> = {
-  USDC: 1,
-  USDT: 1,
-  WETH: 2500,
-  WMNT: 0.85,
-  MNT: 0.85,
-  WBTC: 60000,
-};
 
 export async function GET() {
   // Return cached result if still fresh
@@ -43,7 +34,10 @@ export async function GET() {
       ? cachedWallets.slice(0, 8).map((w) => w.address)
       : await getTopActiveWallets(8);
 
-    // ── Step 2: Build snapshots with real tx count + estimated volumeUSD ────
+    // ── Step 2: Get live token prices (shared with bridge tracker) ──────────
+    const prices = await getTokenPrices();
+
+    // ── Step 3: Build snapshots with real tx count + USD volume ─────────────
     const windowSecs = Math.floor(Date.now() / 1000) - 900; // last 15 min
 
     const snapshots = await Promise.all(
@@ -57,10 +51,10 @@ export async function GET() {
         const recentTxs = txs.filter((t) => parseInt(t.timeStamp) >= windowSecs);
         const recentTokenTxs = tokenTxs.filter((t) => parseInt(t.timeStamp) >= windowSecs);
 
-        // Estimate USD volume from token transfers
+        // Estimate USD volume using live prices
         let volumeUSD = 0;
         for (const t of recentTokenTxs) {
-          const price = TOKEN_PRICES[t.tokenSymbol?.toUpperCase()] ?? 0;
+          const price = priceOf(t.tokenSymbol ?? "", prices);
           if (price === 0) continue;
           const decimals = parseInt(t.tokenDecimal ?? "18");
           const amount = parseFloat(t.value) / Math.pow(10, decimals);
@@ -85,7 +79,7 @@ export async function GET() {
       })
     );
 
-    // ── Step 3: AI anomaly detection ────────────────────────────────────────
+    // ── Step 4: AI anomaly detection ────────────────────────────────────────
     // Filter to wallets that had ANY activity in the window — no point sending
     // idle wallets to the AI, it wastes tokens and produces false positives.
     const activeSnapshots = snapshots.filter(
