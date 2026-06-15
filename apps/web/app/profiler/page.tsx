@@ -80,18 +80,21 @@ export default function ProfilerPage() {
 
   const handleWriteToChain = useCallback(async (triggerTxHash?: string) => {
     setWriting(true);
+    setError("");
     try {
       const res = await fetch("/api/onchain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, triggerTxHash }),
       });
-      if (!res.ok) throw new Error("On-chain write failed");
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? `Server error ${res.status}`);
+      }
       setOnchain(data);
       await refetchOnchain();
-    } catch {
-      setError("Failed to write to chain.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to write to chain.");
     } finally {
       setWriting(false);
     }

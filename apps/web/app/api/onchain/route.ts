@@ -34,15 +34,41 @@ export async function POST(req: NextRequest) {
   const riskScore = insight.riskScore;
   const behaviorTag = BEHAVIOR_TAG_ID[insight.behaviorTag];
 
-  // Write to contract via oracle wallet
-  const walletClient = getOracleWalletClient();
+  // Guard: contract address must be set
+  if (MANTLESCOPE_ADDRESS === "0x0000000000000000000000000000000000000000") {
+    return NextResponse.json(
+      { error: "NEXT_PUBLIC_CONTRACT_ADDRESS env var not set on server" },
+      { status: 503 }
+    );
+  }
 
-  const hash = await walletClient.writeContract({
-    address: MANTLESCOPE_ADDRESS,
-    abi: MANTLESCOPE_ABI,
-    functionName: "writeWalletInsight",
-    args: [address as `0x${string}`, riskScore, behaviorTag, summaryHash, insight.summary],
-  });
+  // Write to contract via oracle wallet
+  let walletClient;
+  try {
+    walletClient = getOracleWalletClient();
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Oracle wallet init failed: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 503 }
+    );
+  }
+
+  let hash: `0x${string}`;
+  try {
+    hash = await walletClient.writeContract({
+      address: MANTLESCOPE_ADDRESS,
+      abi: MANTLESCOPE_ABI,
+      functionName: "writeWalletInsight",
+      args: [address as `0x${string}`, riskScore, behaviorTag, summaryHash, insight.summary],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[onchain] writeContract failed:", msg);
+    return NextResponse.json(
+      { error: `Contract write failed: ${msg}` },
+      { status: 500 }
+    );
+  }
 
   await publicClient.waitForTransactionReceipt({ hash });
 
