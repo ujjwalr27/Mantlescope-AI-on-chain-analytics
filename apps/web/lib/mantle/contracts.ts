@@ -1,4 +1,22 @@
-export const MANTLESCOPE_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
+import { getAddress } from "viem";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+/**
+ * Normalize an env-provided address to its EIP-55 checksum form.
+ * Tolerates any casing (lower/upper/mixed) so a mis-cased env var can't
+ * break contract writes; returns the zero address if unset or malformed.
+ */
+function normalizeAddress(value: string | undefined): `0x${string}` {
+  if (!value) return ZERO_ADDRESS;
+  try {
+    return getAddress(value);
+  } catch {
+    return ZERO_ADDRESS;
+  }
+}
+
+export const MANTLESCOPE_ADDRESS = normalizeAddress(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS);
 
 export const MANTLESCOPE_ABI = [
   {
@@ -92,7 +110,7 @@ export const LENDLE_POOL_ADDRESS = "0xCFa5aE7c2CE8Fadc6426C1ff872cA45378Fb7cF" a
 export const AURELIUS_POOL_ADDRESS = "0x7c9C6F5BEd9Cfe5B9070671a0c476Da7Cd3b4e6" as `0x${string}`;
 
 // MantleScopeAgent (ERC-8004 Agent Identity NFT)
-export const AGENT_CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_AGENT_CONTRACT ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
+export const AGENT_CONTRACT_ADDRESS = normalizeAddress(process.env.NEXT_PUBLIC_AGENT_CONTRACT);
 
 export const AGENT_ABI = [
   {
