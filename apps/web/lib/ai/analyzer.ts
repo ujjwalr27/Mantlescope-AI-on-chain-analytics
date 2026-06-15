@@ -46,6 +46,7 @@ async function callGroqJson<T>(prompt: string, schema: ZodSchema<T>, retries = 1
 
 export async function analyzeWallet(activity: WalletActivity): Promise<WalletInsightResult> {
   const tokenSymbols = activity.recentTokenTxs.map((t) => t.tokenSymbol);
+  const knownCounterparties = activity.labeledCounterparties.map((c) => c.label);
   const prompt = walletProfilerPrompt({
     address: activity.address,
     txCount: activity.txCount,
@@ -53,6 +54,8 @@ export async function analyzeWallet(activity: WalletActivity): Promise<WalletIns
     netMNTFlow: activity.netMNTFlow.toString(),
     protocols: activity.protocols,
     recentTokenSymbols: tokenSymbols,
+    selfLabel: activity.selfLabel?.label ?? null,
+    knownCounterparties,
   });
   const result = await callGroqJson(prompt, WalletInsightSchema);
 

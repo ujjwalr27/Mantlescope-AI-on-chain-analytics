@@ -1,10 +1,11 @@
 "use client";
 
+import React, { useState } from "react";
 import Link from "next/link";
 import { formatAddress } from "@/lib/utils";
 import { WalletBadge } from "./WalletBadge";
-import { ExternalLink } from "lucide-react";
-import { scoreBand } from "@/lib/scoring";
+import { ExternalLink, ChevronDown } from "lucide-react";
+import { scoreBand, type ScoreComponent } from "@/lib/scoring";
 
 export interface WalletRow {
   address: string;
@@ -14,6 +15,7 @@ export interface WalletRow {
   riskScore?: number;
   mantleScore?: number;
   uniqueTokenCount?: number;
+  scoreBreakdown?: ScoreComponent[];
 }
 
 interface Props {
@@ -37,10 +39,41 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
+function ScoreBreakdownRow({ components, colSpan }: { components: ScoreComponent[]; colSpan: number }) {
+  return (
+    <tr className="bg-secondary/20 border-b border-border/50">
+      <td colSpan={colSpan} className="px-4 py-3">
+        <div className="text-xs text-muted-foreground mb-2">
+          MantleScore breakdown — 6 weighted on-chain signals
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2">
+          {components.map((c) => (
+            <div key={c.key}>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-muted-foreground">{c.label}</span>
+                <span className="tabular-nums font-medium">{c.value}/{c.max}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                <div
+                  className="h-full bg-primary/70 rounded-full"
+                  style={{ width: `${c.max > 0 ? (c.value / c.max) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function SmartMoneyTable({ wallets, limit }: Props) {
   const rows = limit ? wallets.slice(0, limit) : wallets;
   const hasMantleScore = rows.some((r) => r.mantleScore !== undefined);
   const hasRiskScore = rows.some((r) => r.riskScore !== undefined);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // address col + txs + counterparties + tag + (score?) + (risk?) + link
+  const colSpan = 4 + (hasMantleScore ? 1 : 0) + (hasRiskScore ? 1 : 0) + 1;
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -63,8 +96,12 @@ export function SmartMoneyTable({ wallets, limit }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((w) => (
-            <tr key={w.address} className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
+          {rows.map((w) => {
+            const canExpand = !!w.scoreBreakdown && w.scoreBreakdown.length > 0;
+            const isOpen = expanded === w.address;
+            return (
+            <React.Fragment key={w.address}>
+            <tr className="border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
               <td className="px-4 py-3 font-mono">
                 <Link href={`/profiler?address=${w.address}`} className="hover:text-primary transition-colors">
                   {formatAddress(w.address)}
@@ -78,7 +115,18 @@ export function SmartMoneyTable({ wallets, limit }: Props) {
               {hasMantleScore && (
                 <td className="px-4 py-3 text-right tabular-nums">
                   {w.mantleScore !== undefined ? (
-                    <ScoreBadge score={w.mantleScore} />
+                    canExpand ? (
+                      <button
+                        onClick={() => setExpanded(isOpen ? null : w.address)}
+                        className="inline-flex items-center gap-1 hover:opacity-80"
+                        title="Show score breakdown"
+                      >
+                        <ScoreBadge score={w.mantleScore} />
+                        <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+                    ) : (
+                      <ScoreBadge score={w.mantleScore} />
+                    )
                   ) : "—"}
                 </td>
               )}
@@ -102,7 +150,12 @@ export function SmartMoneyTable({ wallets, limit }: Props) {
                 </a>
               </td>
             </tr>
-          ))}
+            {isOpen && canExpand && (
+              <ScoreBreakdownRow components={w.scoreBreakdown!} colSpan={colSpan} />
+            )}
+            </React.Fragment>
+            );
+          })}
           {rows.length === 0 && (
             <tr>
               <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">

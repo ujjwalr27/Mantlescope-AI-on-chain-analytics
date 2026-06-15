@@ -26,13 +26,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Valid address required" }, { status: 400 });
   }
 
-  const cacheKey = `mantle:wallet:${address.toLowerCase()}:ai`;
+  const cacheKey = `mantle:wallet:${address.toLowerCase()}:ai:v2`; // v2: includes entity labels
   const cached = await cacheGet(cacheKey);
   if (cached) return NextResponse.json(cached);
 
   const activity = await getWalletActivity(address);
   const result = await analyzeWallet(activity);
 
-  await cacheSet(cacheKey, result, 3600);
-  return NextResponse.json(result);
+  const payload = {
+    ...result,
+    selfLabel: activity.selfLabel,
+    labeledCounterparties: activity.labeledCounterparties,
+  };
+
+  await cacheSet(cacheKey, payload, 3600);
+  return NextResponse.json(payload);
 }

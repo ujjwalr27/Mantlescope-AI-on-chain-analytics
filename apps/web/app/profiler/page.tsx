@@ -11,11 +11,36 @@ import { MANTLESCOPE_ADDRESS, MANTLESCOPE_ABI } from "@/lib/mantle/contracts";
 const BEHAVIOR_TAGS = ["unknown", "accumulator", "trader", "bot", "whale"];
 const EXPECTED_CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID ?? "5003"); // Mantle Sepolia
 
+interface LabeledAddress {
+  address: string;
+  label: string;
+  type: string;
+}
+
 interface InsightResult {
   riskScore: number;
   behaviorTag: string;
   summary: string;
   reasoning: string;
+  selfLabel?: LabeledAddress | null;
+  labeledCounterparties?: LabeledAddress[];
+}
+
+const ENTITY_COLORS: Record<string, string> = {
+  token: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+  bridge: "bg-purple-500/10 text-purple-300 border-purple-500/30",
+  protocol: "bg-green-500/10 text-green-300 border-green-500/30",
+  dex: "bg-orange-500/10 text-orange-300 border-orange-500/30",
+  oracle: "bg-primary/10 text-primary border-primary/30",
+  system: "bg-muted text-muted-foreground border-border",
+};
+
+function EntityChip({ label, type }: { label: string; type: string }) {
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full border ${ENTITY_COLORS[type] ?? ENTITY_COLORS.system}`}>
+      {label}
+    </span>
+  );
 }
 
 interface OnchainResult {
@@ -198,6 +223,23 @@ export default function ProfilerPage() {
               <summary className="cursor-pointer hover:text-foreground">AI Reasoning</summary>
               <p className="mt-2 leading-relaxed">{insight.reasoning}</p>
             </details>
+
+            {/* Known on-chain entities */}
+            {(insight.selfLabel || (insight.labeledCounterparties && insight.labeledCounterparties.length > 0)) && (
+              <div className="border-t border-border pt-3">
+                <div className="text-xs text-muted-foreground mb-2">Identified on-chain entities</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {insight.selfLabel && (
+                    <span className="text-xs px-2 py-0.5 rounded-full border border-primary/50 bg-primary/10 text-primary font-medium">
+                      This wallet: {insight.selfLabel.label}
+                    </span>
+                  )}
+                  {insight.labeledCounterparties?.map((c) => (
+                    <EntityChip key={c.address} label={c.label} type={c.type} />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Two on-chain actions side by side */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-auto">

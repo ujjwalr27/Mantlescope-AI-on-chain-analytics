@@ -24,6 +24,7 @@ async function fetchBlockscout<T>(params: Record<string, string>): Promise<T> {
 }
 
 import type { NormalTx, TokenTx, WalletActivity } from "./mantlescan";
+import { labelAddress, type LabeledAddress } from "./labels";
 
 export async function getTransactions(address: string, page = 1, offset = 100): Promise<NormalTx[]> {
   try {
@@ -69,8 +70,6 @@ export async function getNativeBalance(address: string): Promise<string> {
 }
 
 export async function getWalletActivity(address: string): Promise<WalletActivity> {
-  const { getWalletActivity: buildActivity } = await import("./mantlescan");
-  // Re-use the aggregation logic but swap the fetcher
   const [txs, tokenTxs] = await Promise.all([
     getTransactions(address, 1, 100),
     getTokenTransfers(address, 1, 100),
@@ -93,6 +92,22 @@ export async function getWalletActivity(address: string): Promise<WalletActivity
     if (tx.functionName) protocols.add(tx.to.toLowerCase());
   }
 
+  for (const t of tokenTxs) {
+    if (parseInt(t.timeStamp) < sevenDaysAgo) continue;
+    counterparties.add(
+      t.from.toLowerCase() === address.toLowerCase() ? t.to.toLowerCase() : t.from.toLowerCase()
+    );
+  }
+
+  const labeledCounterparties = Array.from(counterparties)
+    .map((addr) => {
+      const label = labelAddress(addr);
+      return label ? { address: addr, ...label } : null;
+    })
+    .filter((x): x is LabeledAddress => x !== null);
+
+  const self = labelAddress(address);
+
   return {
     address,
     txCount: txs.length,
@@ -101,7 +116,7 @@ export async function getWalletActivity(address: string): Promise<WalletActivity
     protocols: Array.from(protocols).slice(0, 10),
     recentTxs: txs.slice(0, 20),
     recentTokenTxs: tokenTxs.slice(0, 20),
+    labeledCounterparties,
+    selfLabel: self ? { address: address.toLowerCase(), ...self } : null,
   };
-
-  void buildActivity; // suppress unused import warning
 }

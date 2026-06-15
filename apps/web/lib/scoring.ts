@@ -21,8 +21,24 @@ export interface WalletSignals {
   uniqueTokenCount?: number;   // number of distinct tokens interacted with
 }
 
-/** Returns a score 0–100 (integer). */
-export function computeMantleScore(signals: WalletSignals): number {
+/** A single weighted signal that contributes to the composite score. */
+export interface ScoreComponent {
+  key: string;
+  label: string;
+  value: number; // points earned (rounded)
+  max: number;   // max points for this component
+}
+
+export interface ScoreBreakdown {
+  total: number;
+  components: ScoreComponent[];
+}
+
+/**
+ * Full breakdown of the composite score — the per-signal points that sum to the
+ * total. Surfacing this makes the MantleScore auditable rather than a black box.
+ */
+export function computeMantleScoreBreakdown(signals: WalletSignals): ScoreBreakdown {
   const { txCount, uniqueCounterparties, behaviorHint, riskScore, uniqueTokenCount } = signals;
 
   // ── Component 1: Tx volume (0–20) ────────────────────────────────────
@@ -62,15 +78,26 @@ export function computeMantleScore(signals: WalletSignals): number {
   const cpRatio = txCount > 0 ? uniqueCounterparties / txCount : 0;
   const cpRatioScore = Math.min(cpRatio, 1) * 10;
 
-  const total =
-    txScore +
-    cpScore +
-    behaviorScore +
-    tokenScore +
-    riskAdjustedScore +
-    cpRatioScore;
+  const rawTotal =
+    txScore + cpScore + behaviorScore + tokenScore + riskAdjustedScore + cpRatioScore;
+  const total = Math.round(Math.max(0, Math.min(100, rawTotal)));
 
-  return Math.round(Math.max(0, Math.min(100, total)));
+  return {
+    total,
+    components: [
+      { key: "tx",       label: "Tx volume",            value: Math.round(txScore),           max: 20 },
+      { key: "cp",       label: "Counterparty diversity", value: Math.round(cpScore),         max: 15 },
+      { key: "behavior", label: "Behavior",             value: Math.round(behaviorScore),     max: 20 },
+      { key: "token",    label: "Token diversity",      value: Math.round(tokenScore),        max: 15 },
+      { key: "risk",     label: "Risk-adjusted activity", value: Math.round(riskAdjustedScore), max: 20 },
+      { key: "ratio",    label: "Counterparty ratio",   value: Math.round(cpRatioScore),      max: 10 },
+    ],
+  };
+}
+
+/** Returns a score 0–100 (integer). */
+export function computeMantleScore(signals: WalletSignals): number {
+  return computeMantleScoreBreakdown(signals).total;
 }
 
 /** Score band label */

@@ -10,17 +10,22 @@ export function walletProfilerPrompt(data: {
   netMNTFlow: string;
   protocols: string[];
   recentTokenSymbols: string[];
+  selfLabel?: string | null;
+  knownCounterparties?: string[];
 }): string {
   return `Analyze this Mantle wallet and return JSON matching exactly:
 {"riskScore": <0-100>, "behaviorTag": <"unknown"|"accumulator"|"trader"|"bot"|"whale">, "summary": <string max 280 chars>, "reasoning": <string>}
 
-Wallet: ${data.address}
+Wallet: ${data.address}${data.selfLabel ? ` — IDENTIFIED AS: ${data.selfLabel}` : ""}
 Last 7 days on-chain activity:
 - Total transactions: ${data.txCount}
 - Unique counterparties: ${data.uniqueCounterparties}
 - Net MNT flow (wei): ${data.netMNTFlow} ${BigInt(data.netMNTFlow) > 0 ? "(inflow)" : "(outflow)"}
 - Protocols interacted: ${data.protocols.length > 0 ? data.protocols.join(", ") : "none detected"}
 - Tokens transferred: ${data.recentTokenSymbols.length > 0 ? [...new Set(data.recentTokenSymbols)].join(", ") : "none"}
+- Known entities interacted with: ${data.knownCounterparties && data.knownCounterparties.length > 0 ? data.knownCounterparties.join(", ") : "none identified"}
+
+When known entities are present, cite them by name in your reasoning (e.g. bridge usage, lending-pool deposits) — these are the most informative signals. If the wallet itself is a known contract, factor that into the behavior tag.
 
 Classification guide:
 - bot: >50 unique counterparties OR very regular tx intervals

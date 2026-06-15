@@ -1,3 +1,5 @@
+import { labelAddress, type LabeledAddress } from "./labels";
+
 const BASE = "https://api.etherscan.io/v2/api";
 const API_KEY = process.env.ETHERSCAN_API_KEY ?? "";
 // Use DATA_CHAIN_ID for fetching on-chain data (mainnet = richer data)
@@ -97,6 +99,10 @@ export interface WalletActivity {
   protocols: string[];
   recentTxs: NormalTx[];
   recentTokenTxs: TokenTx[];
+  /** Known on-chain entities this wallet interacted with (bridge, pools, tokens…). */
+  labeledCounterparties: LabeledAddress[];
+  /** Label for the analyzed address itself, if it is a known entity. */
+  selfLabel: LabeledAddress | null;
 }
 
 /**
@@ -214,6 +220,24 @@ export async function getWalletActivity(address: string): Promise<WalletActivity
     if (tx.functionName) protocols.add(tx.to.toLowerCase());
   }
 
+  // Fold in token-transfer counterparties too — token flows reveal protocol/bridge
+  // interactions that native txlist misses (e.g. an ERC-20 deposit to the bridge).
+  for (const t of tokenTxs) {
+    if (parseInt(t.timeStamp) < sevenDaysAgo) continue;
+    counterparties.add(
+      t.from.toLowerCase() === address.toLowerCase() ? t.to.toLowerCase() : t.from.toLowerCase()
+    );
+  }
+
+  const labeledCounterparties = Array.from(counterparties)
+    .map((addr) => {
+      const label = labelAddress(addr);
+      return label ? { address: addr, ...label } : null;
+    })
+    .filter((x): x is LabeledAddress => x !== null);
+
+  const self = labelAddress(address);
+
   return {
     address,
     txCount: txs.length,
@@ -222,5 +246,7 @@ export async function getWalletActivity(address: string): Promise<WalletActivity
     protocols: Array.from(protocols).slice(0, 10),
     recentTxs: txs.slice(0, 20),
     recentTokenTxs: tokenTxs.slice(0, 20),
+    labeledCounterparties,
+    selfLabel: self ? { address: address.toLowerCase(), ...self } : null,
   };
 }

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getTopActiveWallets, getTransactions, getTokenTransfers } from "@/lib/data/mantlescan";
 import { cacheGet, cacheSet } from "@/lib/cache/redis";
-import { computeMantleScore } from "@/lib/scoring";
+import { computeMantleScoreBreakdown, type ScoreComponent } from "@/lib/scoring";
 
-const CACHE_KEY = "mantle:wallets:top50:v2"; // bumped: schema now includes mantleScore + uniqueTokenCount
+const CACHE_KEY = "mantle:wallets:top50:v3"; // bumped: schema now includes scoreBreakdown
 const TTL = 600; // 10 min
 
 export interface WalletRow {
@@ -13,6 +13,7 @@ export interface WalletRow {
   behaviorHint: "bot" | "whale" | "trader" | "accumulator" | "unknown";
   mantleScore: number;
   uniqueTokenCount: number;
+  scoreBreakdown: ScoreComponent[];
 }
 
 function classifyHint(txCount: number, counterparties: number): WalletRow["behaviorHint"] {
@@ -45,7 +46,7 @@ export async function GET() {
 
       const behaviorHint = classifyHint(txs.length, counterparties);
 
-      const mantleScore = computeMantleScore({
+      const breakdown = computeMantleScoreBreakdown({
         txCount: txs.length,
         uniqueCounterparties: counterparties,
         behaviorHint,
@@ -57,8 +58,9 @@ export async function GET() {
         txCount: txs.length,
         uniqueCounterparties: counterparties,
         behaviorHint,
-        mantleScore,
+        mantleScore: breakdown.total,
         uniqueTokenCount,
+        scoreBreakdown: breakdown.components,
       };
     })
   );

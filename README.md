@@ -10,8 +10,8 @@
 
 | What | Where |
 |---|---|
-| Live demo | _add Vercel URL here_ |
-| `MantleScopeInsights` (oracle contract) | _add address here_ → [Mantlescan](https://sepolia.mantlescan.xyz) |
+| Live demo | [mantlescope-ai-on-chain-analytics.vercel.app](https://mantlescope-ai-on-chain-analytics-atonin0k9.vercel.app/) |
+| `MantleScopeInsights` (oracle contract) | `0x034b8af90B166551A7cEaA98b5603b2915e6fC64` → [Mantlescan](https://sepolia.mantlescan.xyz/address/0x034b8af90B166551A7cEaA98b5603b2915e6fC64) |
 | `MantleScopeAgent` (ERC-8004 Agent NFT) | `0xE6c9493561cA5d2ef322F0AFdd24B3dCE030944d` → [Mantlescan](https://sepolia.mantlescan.xyz/address/0xE6c9493561cA5d2ef322F0AFdd24B3dCE030944d) |
 | Network | Mantle Sepolia (chainId 5003) |
 | Open data source for | Mantle Mainnet (chainId 5000) |
@@ -45,8 +45,13 @@
 
 ### On-chain
 - **`triggerAnalysis(wallet)`** payable — anyone can pay 0.001 MNT to request an AI analysis on-chain
+- **Trustless fulfillment** — `/api/cron/fulfill` reads `AnalysisRequested` logs directly from chain and fulfills them via the oracle, with **no frontend required**. The request and the fulfillment are both on-chain and auditable.
 - **`writeWalletInsight(...)`** oracle-only — the AI result is committed on-chain and any contract can read it via `getWalletInsight(address)`
 - **Live Oracle Activity Log** at `/oracle` — auto-refreshes every 5s
+
+### Insight quality
+- **On-chain entity labeling** — counterparties are resolved to known entities (L2 bridge, Lendle/Aurelius pools, token contracts, system predeploys), so AI reasoning cites real protocols instead of raw hex — surfaced as chips on the Profiler
+- **Transparent MantleScope Score** — every wallet's composite score expands to a per-signal breakdown (6 weighted components), so the number is auditable, not a black box
 
 ---
 
@@ -159,9 +164,53 @@ Open [http://localhost:3000](http://localhost:3000).
 - [x] `MantleScopeAgent` (ERC-8004) deployed on Mantle Sepolia
 - [x] Both contracts verified on Mantlescan
 - [x] **AI-powered function callable on-chain**: `triggerAnalysis()` is payable + user-callable from the Profiler page
-- [ ] Frontend live at public Vercel URL
+- [x] Frontend live at public Vercel URL → [mantlescope-ai-on-chain-analytics.vercel.app](https://mantlescope-ai-on-chain-analytics-atonin0k9.vercel.app/)
 - [ ] Deployment addresses in DoraHacks submission
 - [ ] Demo video ≥ 2 min walking through the flow
+
+---
+
+## Business Model & Go-to-Market
+
+MantleScope is not just a dashboard — it's an **AI insight layer for Mantle** with two complementary surfaces: a consumer analytics product (the dashboard) and a B2B/B2C2 oracle (`MantleScopeInsights`) that other contracts pay to read.
+
+### The problem
+Every Mantle DeFi protocol that wants risk-aware behavior — risk-gated lending, dynamic collateral factors, sybil-resistant airdrops, anomaly-aware market making — currently has to build its own off-chain AI pipeline (data ingestion, model hosting, oracle plumbing). That's expensive, redundant, and untrustworthy when each protocol grades wallets in its own black box.
+
+### The solution / why now
+MantleScope runs the pipeline **once** and commits the result on-chain, so any protocol gets a trustless, timestamped AI risk score from a single `getWalletInsight(address)` call. One shared oracle replaces N duplicated AI stacks. Mantle's low gas + sub-second Groq LPU inference make on-chain AI insight economically viable today in a way it wasn't on L1.
+
+### Revenue model
+| Stream | Mechanism | Who pays |
+|---|---|---|
+| **Pay-per-trigger** | `triggerAnalysis(wallet)` is payable (MNT). Demo fee is 0; production sets a per-call fee, owner-withdrawable. | End users / protocols refreshing a score |
+| **Oracle read subscriptions** | Protocols pay a monthly fee (or per-read micro-fee) for SLA-backed access to fresh `getWalletInsight` / `getProtocolSnapshot` data. | DeFi protocols (Lendle, Merchant Moe, Agni, etc.) |
+| **Premium analytics / API** | Hosted API + advanced dashboards (custom watchlists, alerting, historical MantleScope Score) on a SaaS tier. | Funds, market makers, treasuries |
+| **Reputation-as-a-service** | ERC-8004 agent identity + achievement trail licensed to other agentic projects needing verifiable on-chain reputation. | AI agent builders on Mantle |
+
+### Target customers & GTM
+1. **Mantle DeFi protocols** (primary) — direct integration partnerships; the oracle removes a build-vs-buy decision. Land via the ecosystem teams of Lendle/Moe/Agni already covered in the Protocols page.
+2. **Professional investors / funds** — Smart Money leaderboard + MantleScope Score as a paid alpha feed; convert dashboard users to API subscribers.
+3. **Mantle ecosystem itself** — grant-funded public-good phase to bootstrap the oracle as shared infrastructure, then transition to usage fees.
+
+GTM sequence: (1) free public dashboard for top-of-funnel + community voting reach → (2) design-partner integrations with 1–2 lending protocols proving risk-gated lending → (3) open the oracle read API with metered pricing.
+
+### Market & defensibility
+- **TAM proxy:** every protocol on Mantle's ~$200M+ TVL is a potential oracle consumer; the cross-protocol risk graph compounds in value with each integration (data network effect).
+- **Moat:** the proprietary **MantleScope Score** (6-signal composite, see below) and an accumulating on-chain history of insights that competitors can't backfill — the longer it runs, the more valuable and harder to replicate.
+
+---
+
+## Scalability & Sustainability
+
+**Scaling to more protocols/chains:**
+- Data layer is source-abstracted ([walletData.ts](apps/web/lib/data/walletData.ts) already does Mantlescan→Blockscout failover); adding a protocol is a config entry, not a rewrite. The Etherscan v2 key covers 60+ EVM chains with one credential, so multi-chain expansion is a `DATA_CHAIN_ID` change.
+- AI layer is schema-driven (Zod + Groq JSON mode), so new insight types (e.g. LP-position risk, governance participation) are additive prompts + schemas, not new infrastructure.
+
+**Keeping pipelines live post-hackathon:**
+- Caching (Upstash Redis, 5min–1h TTLs) + QStash cron keep API costs bounded and predictable; Groq LPU inference is cheap enough to run continuously.
+- Pay-per-trigger and read subscriptions are designed to make the oracle **self-funding** — usage fees cover RPC, AI, and infra costs rather than relying on perpetual grants.
+- **Production hardening roadmap:** migrate the single oracle EOA to a multi-sig signer set, then to a Chainlink DON / decentralized keeper for trust-minimized writes; add on-chain staking/slashing for oracle accountability. The current single-key design is the bootstrap stage, not the end state.
 
 ---
 

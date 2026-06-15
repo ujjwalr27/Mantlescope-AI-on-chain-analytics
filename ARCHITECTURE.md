@@ -83,7 +83,10 @@ MantleScopeInsights.triggerAnalysis(wallet)  [user pays gas]
     │
     ▼ AnalysisRequested event emitted
     │
-After confirmation, frontend auto-calls /api/onchain
+    ├─ Fast path: after confirmation, frontend auto-calls /api/onchain (instant UX)
+    │
+    └─ Trustless path: /api/cron/fulfill (QStash-scheduled) scans AnalysisRequested
+       logs directly from chain and fulfills any request — no frontend required.
     │
     ▼
 Oracle wallet → MantleScopeInsights.writeWalletInsight(...)
@@ -202,6 +205,7 @@ apps/web/
 │       ├── onchain/route.ts           Oracle bridge: AI → contract
 │       ├── cron/anomalies/route.ts    QStash 15-min trigger
 │       ├── cron/anomalies/status/...  First-load fallback scan
+│       ├── cron/fulfill/route.ts      Trustless: scans AnalysisRequested logs → fulfills on-chain
 │       └── oracle/log/route.ts        Returns last 50 events
 ├── components/
 │   ├── layout/             Navbar, Sidebar (with AgentBadge)
