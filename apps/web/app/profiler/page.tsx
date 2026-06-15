@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useSwitchChain } from "wagmi";
 import { parseEther } from "viem";
 import { Search, Shield, ChevronRight, ExternalLink, Loader2, Zap, AlertTriangle } from "lucide-react";
@@ -50,7 +51,8 @@ interface OnchainResult {
   insight: InsightResult;
 }
 
-export default function ProfilerPage() {
+function ProfilerInner() {
+  const searchParams = useSearchParams();
   const [input, setInput] = useState("");
   const [address, setAddress] = useState("");
   const [insight, setInsight] = useState<InsightResult | null>(null);
@@ -79,8 +81,8 @@ export default function ProfilerPage() {
   const { isLoading: triggerConfirming, isSuccess: triggerConfirmed } =
     useWaitForTransactionReceipt({ hash: triggerHash });
 
-  const handleAnalyze = useCallback(async () => {
-    const addr = input.trim();
+  const handleAnalyze = useCallback(async (addrOverride?: string) => {
+    const addr = (addrOverride ?? input).trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
       setError("Enter a valid 0x address");
       return;
@@ -146,6 +148,16 @@ export default function ProfilerPage() {
     }
   }, [triggerConfirmed, triggerHash, address, onchain, autoWriting, handleWriteToChain]);
 
+  // Prefill + auto-analyze when arriving from a link like /profiler?address=0x…
+  useEffect(() => {
+    const qp = searchParams.get("address");
+    if (qp && /^0x[0-9a-fA-F]{40}$/.test(qp) && qp !== address) {
+      setInput(qp);
+      handleAnalyze(qp);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const riskColor =
     insight?.riskScore !== undefined
       ? insight.riskScore > 70 ? "text-red-400" : insight.riskScore > 40 ? "text-yellow-400" : "text-green-400"
@@ -168,7 +180,7 @@ export default function ProfilerPage() {
           className="flex-1 bg-card border border-border rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-1 focus:ring-primary font-mono"
         />
         <button
-          onClick={handleAnalyze}
+          onClick={() => handleAnalyze()}
           disabled={loading}
           className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
         >
@@ -347,5 +359,13 @@ export default function ProfilerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProfilerPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProfilerInner />
+    </Suspense>
   );
 }
